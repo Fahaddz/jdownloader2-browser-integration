@@ -4,7 +4,10 @@ const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
 const recentUrls = new Set();
 const redirectMap = new Map();
-let state;
+var state;
+var jdAvailable = true;
+var lastFailureTime = 0;
+var FAILURE_COOLDOWN = 30000; // 30 seconds before retrying after failure
 
 chrome.webRequest.onBeforeRedirect.addListener(
   function(details) {
@@ -50,6 +53,77 @@ function getOriginalUrl(url) {
   return redirectMap.get(url) || url;
 }
 
+function extractFilenameFromUrl(url) {
+  try {
+    var urlObj = new URL(url);
+    var pathname = urlObj.pathname;
+    var filename = pathname.substring(pathname.lastIndexOf('/') + 1);
+    // Remove query string if present
+    if (filename.indexOf('?') !== -1) {
+      filename = filename.split('?')[0];
+    }
+    if (filename && filename.indexOf('.') !== -1) {
+      return decodeURIComponent(filename);
+    }
+  } catch (e) {}
+  return null;
+}
+
+function isInCooldown() {
+  if (!jdAvailable) {
+    var timeSinceFailure = Date.now() - lastFailureTime;
+    if (timeSinceFailure < FAILURE_COOLDOWN) {
+      return true;
+    }
+    jdAvailable = true;
+  }
+  return false;
+}
+
+function markJDownloaderFailed() {
+  jdAvailable = false;
+  lastFailureTime = Date.now();
+}
+
+function markJDownloaderSuccess() {
+  jdAvailable = true;
+  lastFailureTime = 0;
+}
+
+function quickPing(callback) {
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 500);
+  
+  fetch('http://localhost:3128/device/ping', { signal: controller.signal })
+    .then(function(res) {
+      clearTimeout(timeout);
+      callback(res.ok);
+    })
+    .catch(function() {
+      clearTimeout(timeout);
+      callback(false);
+    });
+}
+
+function fallbackToBrowser(context) {
+  var downloadOptions = { url: context.finalUrl };
+  
+  if (context.filename) {
+    downloadOptions.filename = context.filename;
+  }
+
+  recentUrls.add(context.finalUrl);
+  recentUrls.add(context.originalUrl);
+  
+  // Clean up recentUrls after 10 seconds to prevent memory leak
+  setTimeout(function() {
+    recentUrls.delete(context.finalUrl);
+    recentUrls.delete(context.originalUrl);
+  }, 10000);
+  
+  chrome.downloads.download(downloadOptions);
+}
+
 function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
@@ -62,38 +136,73 @@ function handleDownloadCreated(downloadItem) {
     return;
   }
 
+  // CANCEL IMMEDIATELY - no waiting
   chrome.downloads.cancel(downloadItem.id, function() {
     chrome.downloads.erase({ id: downloadItem.id });
   });
 
-  var encoded = encodeURIComponent(originalUrl);
-  var endpoint = state === 1
-    ? '/linkcollector/addLinks?links=' + encoded + '&packageName=&extractPassword=&downloadPassword='
-    : '/linkcollector/addLinksAndStartDownload?links=' + encoded + '&packageName=&extractPassword=&downloadPassword=';
+  // Store context for fallback
+  var downloadContext = {
+    finalUrl: finalUrl,
+    originalUrl: originalUrl,
+    filename: downloadItem.filename || 
+              extractFilenameFromUrl(originalUrl) || 
+              extractFilenameFromUrl(finalUrl) ||
+              null
+  };
 
-  var controller = new AbortController();
-  var timeout = setTimeout(function() { controller.abort(); }, 10000);
+  // Check cooldown first (instant)
+  if (isInCooldown()) {
+    console.log('JDownloader in cooldown, falling back to browser');
+    fallbackToBrowser(downloadContext);
+    return;
+  }
 
-  fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
-    .then(function(res) {
-      clearTimeout(timeout);
-      if (res.ok) {
-        console.log('Download sent to JDownloader:', originalUrl);
-      } else {
-        throw new Error('JDownloader returned error');
-      }
-    })
-    .catch(function(e) {
-      clearTimeout(timeout);
-      console.log('JDownloader failed, restarting in browser:', e.message);
-      recentUrls.add(originalUrl);
-      chrome.downloads.download({ url: originalUrl });
-    });
+  // Quick ping check (500ms max)
+  quickPing(function(isUp) {
+    if (!isUp) {
+      console.log('JDownloader not responding to ping, falling back to browser');
+      markJDownloaderFailed();
+      fallbackToBrowser(downloadContext);
+      return;
+    }
+
+    // Send to JDownloader
+    var encoded = encodeURIComponent(originalUrl);
+    var endpoint = state === 1
+      ? '/linkcollector/addLinks?links=' + encoded + '&packageName=&extractPassword=&downloadPassword='
+      : '/linkcollector/addLinksAndStartDownload?links=' + encoded + '&packageName=&extractPassword=&downloadPassword=';
+
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 3000);
+
+    fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
+      .then(function(res) {
+        clearTimeout(timeout);
+        if (res.ok) {
+          console.log('Download sent to JDownloader:', originalUrl);
+          markJDownloaderSuccess();
+        } else {
+          throw new Error('JDownloader returned error');
+        }
+      })
+      .catch(function(e) {
+        clearTimeout(timeout);
+        console.log('JDownloader failed, restarting in browser:', e.message);
+        markJDownloaderFailed();
+        fallbackToBrowser(downloadContext);
+      });
+  });
 }
 
 function toggleState() {
   var idx = (MODES.indexOf(state) + 1) % MODES.length;
   state = MODES[idx];
+  
+  // Reset JDownloader availability on mode change
+  jdAvailable = true;
+  lastFailureTime = 0;
+  
   chrome.downloads.onCreated.removeListener(handleDownloadCreated);
   if (state !== 0) chrome.downloads.onCreated.addListener(handleDownloadCreated);
   saveState();

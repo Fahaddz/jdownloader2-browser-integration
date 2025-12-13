@@ -5,6 +5,9 @@ const MODES = [0, 1, 2];
 const recentUrls = new Set();
 const redirectMap = new Map();
 let state;
+let jdAvailable = true;
+let lastFailureTime = 0;
+const FAILURE_COOLDOWN = 30000; // 30 seconds before retrying after failure
 
 browser.webRequest.onBeforeRedirect.addListener(
   function(details) {
@@ -49,6 +52,74 @@ function getOriginalUrl(url) {
   return redirectMap.get(url) || url;
 }
 
+function extractFilenameFromUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    let filename = pathname.substring(pathname.lastIndexOf('/') + 1);
+    // Remove query string if present
+    if (filename.includes('?')) {
+      filename = filename.split('?')[0];
+    }
+    if (filename && filename.includes('.')) {
+      return decodeURIComponent(filename);
+    }
+  } catch (e) {}
+  return null;
+}
+
+function isInCooldown() {
+  if (!jdAvailable) {
+    const timeSinceFailure = Date.now() - lastFailureTime;
+    if (timeSinceFailure < FAILURE_COOLDOWN) {
+      return true;
+    }
+    jdAvailable = true;
+  }
+  return false;
+}
+
+function markJDownloaderFailed() {
+  jdAvailable = false;
+  lastFailureTime = Date.now();
+}
+
+function markJDownloaderSuccess() {
+  jdAvailable = true;
+  lastFailureTime = 0;
+}
+
+async function quickPing() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 500);
+    const res = await fetch('http://localhost:3128/device/ping', { signal: controller.signal });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function fallbackToBrowser(context) {
+  const downloadOptions = { url: context.finalUrl };
+  
+  if (context.filename) {
+    downloadOptions.filename = context.filename;
+  }
+
+  recentUrls.add(context.finalUrl);
+  recentUrls.add(context.originalUrl);
+  
+  // Clean up recentUrls after 10 seconds to prevent memory leak
+  setTimeout(() => {
+    recentUrls.delete(context.finalUrl);
+    recentUrls.delete(context.originalUrl);
+  }, 10000);
+  
+  browser.downloads.download(downloadOptions);
+}
+
 async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
@@ -61,11 +132,39 @@ async function handleDownloadCreated(downloadItem) {
     return;
   }
 
+  // CANCEL IMMEDIATELY - no waiting
   try {
     await browser.downloads.cancel(downloadItem.id);
     await browser.downloads.erase({ id: downloadItem.id });
   } catch (e) {}
 
+  // Store context for fallback
+  const downloadContext = {
+    finalUrl: finalUrl,
+    originalUrl: originalUrl,
+    filename: downloadItem.filename || 
+              extractFilenameFromUrl(originalUrl) || 
+              extractFilenameFromUrl(finalUrl) ||
+              null
+  };
+
+  // Check cooldown first (instant)
+  if (isInCooldown()) {
+    console.log('JDownloader in cooldown, falling back to browser');
+    fallbackToBrowser(downloadContext);
+    return;
+  }
+
+  // Quick ping check (500ms max)
+  const isUp = await quickPing();
+  if (!isUp) {
+    console.log('JDownloader not responding to ping, falling back to browser');
+    markJDownloaderFailed();
+    fallbackToBrowser(downloadContext);
+    return;
+  }
+
+  // Send to JDownloader
   const encoded = encodeURIComponent(originalUrl);
   const endpoint = state === 1
     ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
@@ -73,7 +172,7 @@ async function handleDownloadCreated(downloadItem) {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 3000);
 
     const res = await fetch(`http://localhost:3128${endpoint}`, {
       signal: controller.signal
@@ -82,19 +181,25 @@ async function handleDownloadCreated(downloadItem) {
 
     if (res.ok) {
       console.log('Download sent to JDownloader:', originalUrl);
+      markJDownloaderSuccess();
     } else {
       throw new Error('JDownloader returned error');
     }
   } catch (e) {
     console.log('JDownloader failed, restarting in browser:', e.message);
-    recentUrls.add(originalUrl);
-    browser.downloads.download({ url: originalUrl });
+    markJDownloaderFailed();
+    fallbackToBrowser(downloadContext);
   }
 }
 
 async function toggleState() {
   const idx = (MODES.indexOf(state) + 1) % MODES.length;
   state = MODES[idx];
+  
+  // Reset JDownloader availability on mode change
+  jdAvailable = true;
+  lastFailureTime = 0;
+  
   browser.downloads.onCreated.removeListener(handleDownloadCreated);
   if (state !== 0) browser.downloads.onCreated.addListener(handleDownloadCreated);
   await saveState();

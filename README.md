@@ -47,8 +47,12 @@ The icon and tooltip update to indicate the current mode:
   * `addLinksAndStartDownload` in Automatic mode
 * Toggle modes instantly by clicking the toolbar icon
 * Works with any Chromium-based browser and Firefox
-* **Automatic fallback**: If JDownloader is not running, downloads automatically resume in the browser
+* **Quick availability check**: Uses `/device/ping` endpoint (~4ms) to verify JDownloader is running
+* **Smart fallback**: If JDownloader is not running, downloads proceed normally in the browser
+* **Filename preservation**: Fallback downloads retain the correct filename (fixes GitHub releases issue)
 * **Redirect URL tracking**: Correctly handles URLs that redirect (e.g., GitHub releases) using the original URL
+* **30-second cooldown**: After a failure, skips JDownloader checks for 30 seconds (instant fallback)
+* **Click to reset**: Clicking the extension icon resets the cooldown, allowing immediate retry
 
 ## Requirements
 
@@ -154,15 +158,21 @@ This creates:
 | Connection refused errors | JDownloader must be running and listening on `http://localhost:3128` |
 | Extension icon not visible | Pin the extension from the browser's extension menu |
 | Download falls back to browser | This is expected behavior when JDownloader is not running or unreachable |
+| Fallback happening too often | Click the extension icon to reset the cooldown and retry JDownloader |
 
 ## How It Works
 
-1. When you start a download, the extension **immediately cancels** it in the browser (no bandwidth wasted)
-2. The extension sends the **original URL** (before any redirects) to JDownloader's API
-3. If JDownloader responds successfully, the download proceeds in JDownloader
-4. If JDownloader is unreachable (10 second timeout), the download **automatically restarts** in the browser
+1. When you start a download, the extension **immediately cancels** it in the browser
+2. A quick ping check (~4ms when JD is running, 500ms timeout) verifies JDownloader availability
+3. If JDownloader is **not available**:
+   - The download restarts in the browser with the correct filename
+   - A 30-second cooldown starts (subsequent downloads skip the ping check)
+4. If JDownloader **is available**:
+   - The **original URL** (before any redirects) is sent to JDownloader's API
+   - On success, JDownloader handles the download
+   - On failure, the download falls back to the browser
 
-This ensures downloads never get lost, even if JDownloader is not running.
+This ensures downloads never get lost and filenames are preserved correctly.
 
 ## Limitations
 
@@ -191,6 +201,8 @@ All original code, icons, and concept are credited to the original author. This 
 - Chrome/Chromium browser support (Manifest V2 & V3)
 - Multi-browser build system
 - Automated GitHub releases
+- Smart fallback with filename preservation
+- Quick availability ping check
 
 
 <details>

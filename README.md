@@ -47,6 +47,8 @@ The icon and tooltip update to indicate the current mode:
   * `addLinksAndStartDownload` in Automatic mode
 * Toggle modes instantly by clicking the toolbar icon
 * Works with any Chromium-based browser and Firefox
+* **Automatic fallback**: If JDownloader is not running, downloads automatically resume in the browser
+* **Redirect URL tracking**: Correctly handles URLs that redirect (e.g., GitHub releases) using the original URL
 
 ## Requirements
 
@@ -151,12 +153,21 @@ This creates:
 | Links not appearing in JDownloader | Verify that `DeprecatedApi.enabled` is set to `true` and JDownloader is running |
 | Connection refused errors | JDownloader must be running and listening on `http://localhost:3128` |
 | Extension icon not visible | Pin the extension from the browser's extension menu |
+| Download falls back to browser | This is expected behavior when JDownloader is not running or unreachable |
+
+## How It Works
+
+1. When you start a download, the extension **immediately cancels** it in the browser (no bandwidth wasted)
+2. The extension sends the **original URL** (before any redirects) to JDownloader's API
+3. If JDownloader responds successfully, the download proceeds in JDownloader
+4. If JDownloader is unreachable (10 second timeout), the download **automatically restarts** in the browser
+
+This ensures downloads never get lost, even if JDownloader is not running.
 
 ## Limitations
 
 * Only works with a locally running JDownloader2 instance
 * Depends on the deprecated API; incompatible with remote JDownloader servers
-* JDownloader must be running before starting downloads
 
 ## Project Structure
 

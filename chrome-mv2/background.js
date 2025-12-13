@@ -3,7 +3,21 @@ const ICON_AUTO = 'icons/icon-128-auto.png';
 const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
 const recentUrls = new Set();
+const redirectMap = new Map();
 let state;
+
+chrome.webRequest.onBeforeRedirect.addListener(
+  function(details) {
+    if (details.type === 'main_frame' || details.type === 'sub_frame') return;
+    var originalUrl = redirectMap.get(details.url) || details.url;
+    redirectMap.set(details.redirectUrl, originalUrl);
+    setTimeout(function() {
+      redirectMap.delete(details.url);
+      redirectMap.delete(details.redirectUrl);
+    }, 60000);
+  },
+  { urls: ["<all_urls>"] }
+);
 
 function loadState(callback) {
   chrome.storage.local.get("state", function(data) {
@@ -32,13 +46,19 @@ function updateBrowserAction() {
   }
 }
 
+function getOriginalUrl(url) {
+  return redirectMap.get(url) || url;
+}
+
 function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
-  const downloadUrl = downloadItem.url;
+  var finalUrl = downloadItem.url;
+  var originalUrl = getOriginalUrl(finalUrl);
 
-  if (recentUrls.has(downloadUrl)) {
-    recentUrls.delete(downloadUrl);
+  if (recentUrls.has(finalUrl) || recentUrls.has(originalUrl)) {
+    recentUrls.delete(finalUrl);
+    recentUrls.delete(originalUrl);
     return;
   }
 
@@ -46,19 +66,19 @@ function handleDownloadCreated(downloadItem) {
     chrome.downloads.erase({ id: downloadItem.id });
   });
 
-  const encoded = encodeURIComponent(downloadUrl);
-  const endpoint = state === 1
-    ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
-    : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
+  var encoded = encodeURIComponent(originalUrl);
+  var endpoint = state === 1
+    ? '/linkcollector/addLinks?links=' + encoded + '&packageName=&extractPassword=&downloadPassword='
+    : '/linkcollector/addLinksAndStartDownload?links=' + encoded + '&packageName=&extractPassword=&downloadPassword=';
 
-  const controller = new AbortController();
-  const timeout = setTimeout(function() { controller.abort(); }, 6000);
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 10000);
 
-  fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal })
+  fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
     .then(function(res) {
       clearTimeout(timeout);
       if (res.ok) {
-        console.log('Download sent to JDownloader');
+        console.log('Download sent to JDownloader:', originalUrl);
       } else {
         throw new Error('JDownloader returned error');
       }
@@ -66,13 +86,13 @@ function handleDownloadCreated(downloadItem) {
     .catch(function(e) {
       clearTimeout(timeout);
       console.log('JDownloader failed, restarting in browser:', e.message);
-      recentUrls.add(downloadUrl);
-      chrome.downloads.download({ url: downloadUrl });
+      recentUrls.add(originalUrl);
+      chrome.downloads.download({ url: originalUrl });
     });
 }
 
 function toggleState() {
-  const idx = (MODES.indexOf(state) + 1) % MODES.length;
+  var idx = (MODES.indexOf(state) + 1) % MODES.length;
   state = MODES[idx];
   chrome.downloads.onCreated.removeListener(handleDownloadCreated);
   if (state !== 0) chrome.downloads.onCreated.addListener(handleDownloadCreated);

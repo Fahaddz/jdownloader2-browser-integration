@@ -3,7 +3,21 @@ const ICON_AUTO = 'icons/icon-128-auto.png';
 const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
 const recentUrls = new Set();
+const redirectMap = new Map();
 let state;
+
+chrome.webRequest.onBeforeRedirect.addListener(
+  function(details) {
+    if (details.type === 'main_frame' || details.type === 'sub_frame') return;
+    const originalUrl = redirectMap.get(details.url) || details.url;
+    redirectMap.set(details.redirectUrl, originalUrl);
+    setTimeout(() => {
+      redirectMap.delete(details.url);
+      redirectMap.delete(details.redirectUrl);
+    }, 60000);
+  },
+  { urls: ["<all_urls>"] }
+);
 
 async function loadState() {
   const data = await chrome.storage.local.get("state");
@@ -31,13 +45,19 @@ function updateAction() {
   }
 }
 
+function getOriginalUrl(url) {
+  return redirectMap.get(url) || url;
+}
+
 async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
-  const downloadUrl = downloadItem.url;
+  const finalUrl = downloadItem.url;
+  const originalUrl = getOriginalUrl(finalUrl);
 
-  if (recentUrls.has(downloadUrl)) {
-    recentUrls.delete(downloadUrl);
+  if (recentUrls.has(finalUrl) || recentUrls.has(originalUrl)) {
+    recentUrls.delete(finalUrl);
+    recentUrls.delete(originalUrl);
     return;
   }
 
@@ -46,14 +66,14 @@ async function handleDownloadCreated(downloadItem) {
     await chrome.downloads.erase({ id: downloadItem.id });
   } catch (e) {}
 
-  const encoded = encodeURIComponent(downloadUrl);
+  const encoded = encodeURIComponent(originalUrl);
   const endpoint = state === 1
     ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
     : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
     const res = await fetch(`http://localhost:3128${endpoint}`, {
       signal: controller.signal
@@ -61,14 +81,14 @@ async function handleDownloadCreated(downloadItem) {
     clearTimeout(timeout);
 
     if (res.ok) {
-      console.log('Download sent to JDownloader');
+      console.log('Download sent to JDownloader:', originalUrl);
     } else {
       throw new Error('JDownloader returned error');
     }
   } catch (e) {
     console.log('JDownloader failed, restarting in browser:', e.message);
-    recentUrls.add(downloadUrl);
-    chrome.downloads.download({ url: downloadUrl });
+    recentUrls.add(originalUrl);
+    chrome.downloads.download({ url: originalUrl });
   }
 }
 

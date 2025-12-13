@@ -104,8 +104,19 @@ async function quickPing() {
 function fallbackToBrowser(context) {
   const downloadOptions = { url: context.finalUrl };
   
+  // Firefox filename must be just the filename, not a full path
   if (context.filename) {
-    downloadOptions.filename = context.filename;
+    // Extract just the filename if it's a full path
+    let filename = context.filename;
+    if (filename.includes('/')) {
+      filename = filename.substring(filename.lastIndexOf('/') + 1);
+    }
+    if (filename.includes('\\')) {
+      filename = filename.substring(filename.lastIndexOf('\\') + 1);
+    }
+    if (filename) {
+      downloadOptions.filename = filename;
+    }
   }
 
   recentUrls.add(context.finalUrl);
@@ -117,7 +128,13 @@ function fallbackToBrowser(context) {
     recentUrls.delete(context.originalUrl);
   }, 10000);
   
-  browser.downloads.download(downloadOptions);
+  browser.downloads.download(downloadOptions).catch(err => {
+    console.error('Fallback download failed:', err.message);
+    // Try again without filename constraint
+    browser.downloads.download({ url: context.finalUrl }).catch(err2 => {
+      console.error('Fallback download failed again:', err2.message);
+    });
+  });
 }
 
 async function handleDownloadCreated(downloadItem) {

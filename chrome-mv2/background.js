@@ -108,8 +108,18 @@ function quickPing(callback) {
 function fallbackToBrowser(context) {
   var downloadOptions = { url: context.finalUrl };
   
+  // Chrome filename must be just the filename, not a full path
   if (context.filename) {
-    downloadOptions.filename = context.filename;
+    var filename = context.filename;
+    if (filename.indexOf('/') !== -1) {
+      filename = filename.substring(filename.lastIndexOf('/') + 1);
+    }
+    if (filename.indexOf('\\') !== -1) {
+      filename = filename.substring(filename.lastIndexOf('\\') + 1);
+    }
+    if (filename) {
+      downloadOptions.filename = filename;
+    }
   }
 
   recentUrls.add(context.finalUrl);
@@ -121,7 +131,13 @@ function fallbackToBrowser(context) {
     recentUrls.delete(context.originalUrl);
   }, 10000);
   
-  chrome.downloads.download(downloadOptions);
+  chrome.downloads.download(downloadOptions, function(downloadId) {
+    if (chrome.runtime.lastError) {
+      console.error('Fallback download failed:', chrome.runtime.lastError.message);
+      // Try again without filename constraint
+      chrome.downloads.download({ url: context.finalUrl });
+    }
+  });
 }
 
 function handleDownloadCreated(downloadItem) {

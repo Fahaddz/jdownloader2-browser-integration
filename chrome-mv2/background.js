@@ -106,21 +106,9 @@ function quickPing(callback) {
 }
 
 function fallbackToBrowser(context) {
+  // Don't set filename - let browser determine it from Content-Disposition header
+  // This ensures correct filenames for GitHub archives and similar downloads
   var downloadOptions = { url: context.finalUrl };
-  
-  // Chrome filename must be just the filename, not a full path
-  if (context.filename) {
-    var filename = context.filename;
-    if (filename.indexOf('/') !== -1) {
-      filename = filename.substring(filename.lastIndexOf('/') + 1);
-    }
-    if (filename.indexOf('\\') !== -1) {
-      filename = filename.substring(filename.lastIndexOf('\\') + 1);
-    }
-    if (filename) {
-      downloadOptions.filename = filename;
-    }
-  }
 
   recentUrls.add(context.finalUrl);
   recentUrls.add(context.originalUrl);
@@ -131,11 +119,9 @@ function fallbackToBrowser(context) {
     recentUrls.delete(context.originalUrl);
   }, 10000);
   
-  chrome.downloads.download(downloadOptions, function(downloadId) {
+  chrome.downloads.download(downloadOptions, function() {
     if (chrome.runtime.lastError) {
       console.error('Fallback download failed:', chrome.runtime.lastError.message);
-      // Try again without filename constraint
-      chrome.downloads.download({ url: context.finalUrl });
     }
   });
 }
@@ -158,13 +144,20 @@ function handleDownloadCreated(downloadItem) {
   });
 
   // Store context for fallback
+  // Prefer downloadItem.filename as browser resolves it from Content-Disposition
+  // Fall back to URL extraction if not available
+  var filename = null;
+  if (downloadItem.filename) {
+    filename = downloadItem.filename;
+  } else {
+    // Try to get filename from URL, prefer original URL for better names
+    filename = extractFilenameFromUrl(originalUrl) || extractFilenameFromUrl(finalUrl);
+  }
+  
   var downloadContext = {
     finalUrl: finalUrl,
     originalUrl: originalUrl,
-    filename: downloadItem.filename || 
-              extractFilenameFromUrl(originalUrl) || 
-              extractFilenameFromUrl(finalUrl) ||
-              null
+    filename: filename
   };
 
   // Check cooldown first (instant)

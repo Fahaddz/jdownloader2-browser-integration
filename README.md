@@ -74,9 +74,9 @@ The icon and tooltip update to indicate the current mode:
 
 1. Go to the [Releases](https://github.com/Lood2222/jdownloader2-browser-integration/releases) page
 2. Download the appropriate file for your browser:
-   - **Firefox**: `jdownloader-interceptor-firefox-v*.xpi`
-   - **Chrome (MV2)**: `jdownloader-interceptor-chrome-mv2-v*.zip`
-   - **Chrome (MV3)**: `jdownloader-interceptor-chrome-mv3-v*.zip`
+   - **Firefox**: `jdownloader2-browser-integration-firefox-v*.xpi`
+   - **Chrome (MV2)**: `jdownloader2-browser-integration-chrome-mv2-v*.zip`
+   - **Chrome (MV3)**: `jdownloader2-browser-integration-chrome-mv3-v*.zip`
 
 #### Firefox
 
@@ -137,9 +137,9 @@ chmod +x build.sh
 ```
 
 This creates:
-- `build/jdownloader-interceptor-firefox-v*.xpi`
-- `build/jdownloader-interceptor-chrome-mv2-v*.zip`
-- `build/jdownloader-interceptor-chrome-mv3-v*.zip`
+- `build/jdownloader2-browser-integration-firefox-v*.xpi`
+- `build/jdownloader2-browser-integration-chrome-mv2-v*.zip`
+- `build/jdownloader2-browser-integration-chrome-mv3-v*.zip`
 
 ## Usage
 

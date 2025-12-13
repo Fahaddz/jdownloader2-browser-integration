@@ -13,47 +13,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract version from manifest.json
+      - name: Extract version from VERSION file
         id: get_version
         run: |
-          VERSION=$(jq -r '.version' firefox/manifest.json)
+          VERSION=$(cat VERSION | tr -d '\n\r ')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Check if tag exists
-        id: check_tag
+      - name: Check if release exists
+        id: check_release
         run: |
-          if git rev-parse "refs/tags/v${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+          if gh release view "v${{ steps.get_version.outputs.version }}" &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build extensions
-        if: steps.check_tag.outputs.exists == 'false'
+        if: steps.check_release.outputs.exists == 'false'
         run: |
           chmod +x build.sh
           ./build.sh
 
-      - name: Create Git tag
-        if: steps.check_tag.outputs.exists == 'false'
-        env:
-          VERSION: ${{ steps.get_version.outputs.version }}
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git tag "v$VERSION"
-          git push https://x-access-token:$PAT_TOKEN@github.com/${{ github.repository }} refs/tags/v$VERSION
-
-      - name: Create GitHub Release
-        if: steps.check_tag.outputs.exists == 'false'
-        id: create_release
+      - name: Create Draft Release
+        if: steps.check_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
           name: Release v${{ steps.get_version.outputs.version }}
-          draft: false
+          draft: true
           prerelease: false
+          generate_release_notes: true
           files: |
             build/jdownloader-interceptor-firefox-v${{ steps.get_version.outputs.version }}.xpi
             build/jdownloader-interceptor-chrome-mv2-v${{ steps.get_version.outputs.version }}.zip

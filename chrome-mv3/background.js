@@ -2,6 +2,7 @@ const ICON_MANUAL = 'icons/icon-128.png';
 const ICON_AUTO = 'icons/icon-128-auto.png';
 const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
+const recentUrls = new Set();
 let state;
 
 async function loadState() {
@@ -34,20 +35,40 @@ async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
   const downloadUrl = downloadItem.url;
+
+  if (recentUrls.has(downloadUrl)) {
+    recentUrls.delete(downloadUrl);
+    return;
+  }
+
+  try {
+    await chrome.downloads.cancel(downloadItem.id);
+    await chrome.downloads.erase({ id: downloadItem.id });
+  } catch (e) {}
+
   const encoded = encodeURIComponent(downloadUrl);
   const endpoint = state === 1
     ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
     : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
 
-  fetch(`http://localhost:3128${endpoint}`)
-    .then(res => console.log('Response status:', res.status))
-    .catch(console.error);
-
   try {
-    await chrome.downloads.cancel(downloadItem.id);
-    await chrome.downloads.erase({ id: downloadItem.id });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const res = await fetch(`http://localhost:3128${endpoint}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      console.log('Download sent to JDownloader');
+    } else {
+      throw new Error('JDownloader returned error');
+    }
   } catch (e) {
-    console.error(e);
+    console.log('JDownloader failed, restarting in browser:', e.message);
+    recentUrls.add(downloadUrl);
+    chrome.downloads.download({ url: downloadUrl });
   }
 }
 

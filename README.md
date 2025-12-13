@@ -182,6 +182,29 @@ All original code, icons, and concept are credited to the original author. This 
 - Automated GitHub releases
 
 
+<details>
+<summary><strong>How to Install JDownloader2 and Disable Ads</strong></summary>
+
+### Installation
+
+1. Go to [https://jdownloader.org/jdownloader2](https://jdownloader.org/jdownloader2) and click on the button for your operating system to download the setup file.
+
+2. Run the setup file and follow the installation instructions. You can choose the installation directory and language during this process.
+
+### Disable Ads
+
+1. Once JDownloader is installed, open it and go to **Settings → Advanced Settings** (the icon with a warning sign).
+
+2. In the Filter Settings, search for the following values and disable them by clicking on the check-mark button:
+
+   - `premium alert`
+   - `oboom`
+   - `Special Deals`
+   - `Donate`
+   - `Banner`
+
+</details>
+
 ## License
 
 This project is licensed under the Mozilla Public License 2.0

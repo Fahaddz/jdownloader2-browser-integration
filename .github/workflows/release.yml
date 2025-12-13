@@ -1,0 +1,62 @@
+name: Build and Release Extensions
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from manifest.json
+        id: get_version
+        run: |
+          VERSION=$(jq -r '.version' firefox/manifest.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          if git rev-parse "refs/tags/v${{ steps.get_version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build extensions
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Create Git tag
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.get_version.outputs.version }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git tag "v$VERSION"
+          git push https://x-access-token:$PAT_TOKEN@github.com/${{ github.repository }} refs/tags/v$VERSION
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            build/jdownloader-interceptor-firefox-v${{ steps.get_version.outputs.version }}.xpi
+            build/jdownloader-interceptor-chrome-mv2-v${{ steps.get_version.outputs.version }}.zip
+            build/jdownloader-interceptor-chrome-mv3-v${{ steps.get_version.outputs.version }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

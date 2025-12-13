@@ -1,13 +1,13 @@
-const ICON_MANUAL = 'icons/icon-128.png';
-const ICON_AUTO = 'icons/icon-128-auto.png';
-const ICON_OFF = 'icons/icon-128-disabled.png';
-const MODES = [0, 1, 2];
-const recentUrls = new Set();
-const redirectMap = new Map();
+var ICON_MANUAL = 'icons/icon-128.png';
+var ICON_AUTO = 'icons/icon-128-auto.png';
+var ICON_OFF = 'icons/icon-128-disabled.png';
+var MODES = [0, 1, 2];
+var recentUrls = new Set();
+var redirectMap = new Map();
 var state;
 var jdAvailable = true;
 var lastFailureTime = 0;
-var FAILURE_COOLDOWN = 30000; // 30 seconds before retrying after failure
+var FAILURE_COOLDOWN = 30000;
 
 chrome.webRequest.onBeforeRedirect.addListener(
   function(details) {
@@ -19,12 +19,12 @@ chrome.webRequest.onBeforeRedirect.addListener(
       redirectMap.delete(details.redirectUrl);
     }, 60000);
   },
-  { urls: ["<all_urls>"] }
+  { urls: ['<all_urls>'] }
 );
 
 function loadState(callback) {
-  chrome.storage.local.get("state", function(data) {
-    callback((typeof data.state === "number") ? data.state : 2);
+  chrome.storage.local.get('state', function(data) {
+    callback((typeof data.state === 'number') ? data.state : 2);
   });
 }
 
@@ -36,15 +36,15 @@ function updateBrowserAction() {
   switch (state) {
     case 0:
       chrome.browserAction.setIcon({ path: ICON_OFF });
-      chrome.browserAction.setTitle({ title: "Download Disabled" });
+      chrome.browserAction.setTitle({ title: 'Download Disabled' });
       break;
     case 1:
       chrome.browserAction.setIcon({ path: ICON_MANUAL });
-      chrome.browserAction.setTitle({ title: "Manual Mode" });
+      chrome.browserAction.setTitle({ title: 'Manual Mode' });
       break;
     case 2:
       chrome.browserAction.setIcon({ path: ICON_AUTO });
-      chrome.browserAction.setTitle({ title: "Auto Mode" });
+      chrome.browserAction.setTitle({ title: 'Auto Mode' });
       break;
   }
 }
@@ -53,26 +53,9 @@ function getOriginalUrl(url) {
   return redirectMap.get(url) || url;
 }
 
-function extractFilenameFromUrl(url) {
-  try {
-    var urlObj = new URL(url);
-    var pathname = urlObj.pathname;
-    var filename = pathname.substring(pathname.lastIndexOf('/') + 1);
-    // Remove query string if present
-    if (filename.indexOf('?') !== -1) {
-      filename = filename.split('?')[0];
-    }
-    if (filename && filename.indexOf('.') !== -1) {
-      return decodeURIComponent(filename);
-    }
-  } catch (e) {}
-  return null;
-}
-
 function isInCooldown() {
   if (!jdAvailable) {
-    var timeSinceFailure = Date.now() - lastFailureTime;
-    if (timeSinceFailure < FAILURE_COOLDOWN) {
+    if (Date.now() - lastFailureTime < FAILURE_COOLDOWN) {
       return true;
     }
     jdAvailable = true;
@@ -105,21 +88,16 @@ function quickPing(callback) {
     });
 }
 
-function fallbackToBrowser(context) {
-  // Don't set filename - let browser determine it from Content-Disposition header
-  // This ensures correct filenames for GitHub archives and similar downloads
-  var downloadOptions = { url: context.finalUrl };
-
-  recentUrls.add(context.finalUrl);
-  recentUrls.add(context.originalUrl);
+function fallbackToBrowser(url, originalUrl) {
+  recentUrls.add(url);
+  recentUrls.add(originalUrl);
   
-  // Clean up recentUrls after 10 seconds to prevent memory leak
   setTimeout(function() {
-    recentUrls.delete(context.finalUrl);
-    recentUrls.delete(context.originalUrl);
+    recentUrls.delete(url);
+    recentUrls.delete(originalUrl);
   }, 10000);
   
-  chrome.downloads.download(downloadOptions, function() {
+  chrome.downloads.download({ url: url }, function() {
     if (chrome.runtime.lastError) {
       console.error('Fallback download failed:', chrome.runtime.lastError.message);
     }
@@ -129,54 +107,33 @@ function fallbackToBrowser(context) {
 function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
-  var finalUrl = downloadItem.url;
-  var originalUrl = getOriginalUrl(finalUrl);
+  var url = downloadItem.url;
+  var originalUrl = getOriginalUrl(url);
 
-  if (recentUrls.has(finalUrl) || recentUrls.has(originalUrl)) {
-    recentUrls.delete(finalUrl);
+  if (recentUrls.has(url) || recentUrls.has(originalUrl)) {
+    recentUrls.delete(url);
     recentUrls.delete(originalUrl);
     return;
   }
 
-  // CANCEL IMMEDIATELY - no waiting
   chrome.downloads.cancel(downloadItem.id, function() {
     chrome.downloads.erase({ id: downloadItem.id });
   });
 
-  // Store context for fallback
-  // Prefer downloadItem.filename as browser resolves it from Content-Disposition
-  // Fall back to URL extraction if not available
-  var filename = null;
-  if (downloadItem.filename) {
-    filename = downloadItem.filename;
-  } else {
-    // Try to get filename from URL, prefer original URL for better names
-    filename = extractFilenameFromUrl(originalUrl) || extractFilenameFromUrl(finalUrl);
-  }
-  
-  var downloadContext = {
-    finalUrl: finalUrl,
-    originalUrl: originalUrl,
-    filename: filename
-  };
-
-  // Check cooldown first (instant)
   if (isInCooldown()) {
     console.log('JDownloader in cooldown, falling back to browser');
-    fallbackToBrowser(downloadContext);
+    fallbackToBrowser(url, originalUrl);
     return;
   }
 
-  // Quick ping check (500ms max)
   quickPing(function(isUp) {
     if (!isUp) {
-      console.log('JDownloader not responding to ping, falling back to browser');
+      console.log('JDownloader not responding, falling back to browser');
       markJDownloaderFailed();
-      fallbackToBrowser(downloadContext);
+      fallbackToBrowser(url, originalUrl);
       return;
     }
 
-    // Send to JDownloader
     var encoded = encodeURIComponent(originalUrl);
     var endpoint = state === 1
       ? '/linkcollector/addLinks?links=' + encoded + '&packageName=&extractPassword=&downloadPassword='
@@ -197,18 +154,15 @@ function handleDownloadCreated(downloadItem) {
       })
       .catch(function(e) {
         clearTimeout(timeout);
-        console.log('JDownloader failed, restarting in browser:', e.message);
+        console.log('JDownloader failed:', e.message);
         markJDownloaderFailed();
-        fallbackToBrowser(downloadContext);
+        fallbackToBrowser(url, originalUrl);
       });
   });
 }
 
 function toggleState() {
-  var idx = (MODES.indexOf(state) + 1) % MODES.length;
-  state = MODES[idx];
-  
-  // Reset JDownloader availability on mode change
+  state = MODES[(MODES.indexOf(state) + 1) % MODES.length];
   jdAvailable = true;
   lastFailureTime = 0;
   

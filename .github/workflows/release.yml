@@ -49,8 +49,8 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            build/jdownloader-interceptor-firefox-v${{ steps.get_version.outputs.version }}.xpi
-            build/jdownloader-interceptor-chrome-mv2-v${{ steps.get_version.outputs.version }}.zip
-            build/jdownloader-interceptor-chrome-mv3-v${{ steps.get_version.outputs.version }}.zip
+            build/jdownloader2-browser-integration-firefox-v${{ steps.get_version.outputs.version }}.xpi
+            build/jdownloader2-browser-integration-chrome-mv2-v${{ steps.get_version.outputs.version }}.zip
+            build/jdownloader2-browser-integration-chrome-mv3-v${{ steps.get_version.outputs.version }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

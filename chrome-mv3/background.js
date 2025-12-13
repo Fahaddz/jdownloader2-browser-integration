@@ -2,7 +2,7 @@ const ICON_MANUAL = 'icons/icon-128.png';
 const ICON_AUTO = 'icons/icon-128-auto.png';
 const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
-let state = 2;
+let state;
 
 async function loadState() {
   const data = await chrome.storage.local.get("state");
@@ -30,7 +30,7 @@ function updateAction() {
   }
 }
 
-function handleDownloadCreated(downloadItem) {
+async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
   const downloadUrl = downloadItem.url;
@@ -43,9 +43,12 @@ function handleDownloadCreated(downloadItem) {
     .then(res => console.log('Response status:', res.status))
     .catch(console.error);
 
-  chrome.downloads.cancel(downloadItem.id)
-    .then(() => chrome.downloads.erase({ id: downloadItem.id }))
-    .catch(console.error);
+  try {
+    await chrome.downloads.cancel(downloadItem.id);
+    await chrome.downloads.erase({ id: downloadItem.id });
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function toggleState() {
@@ -57,22 +60,13 @@ async function toggleState() {
   updateAction();
 }
 
-chrome.runtime.onStartup.addListener(async () => {
+async function init() {
   state = await loadState();
   if (state !== 0) chrome.downloads.onCreated.addListener(handleDownloadCreated);
   updateAction();
-});
+}
 
-chrome.runtime.onInstalled.addListener(async () => {
-  state = await loadState();
-  if (state !== 0) chrome.downloads.onCreated.addListener(handleDownloadCreated);
-  updateAction();
-});
-
+chrome.runtime.onStartup.addListener(init);
+chrome.runtime.onInstalled.addListener(init);
 chrome.action.onClicked.addListener(toggleState);
-
-(async () => {
-  state = await loadState();
-  if (state !== 0) chrome.downloads.onCreated.addListener(handleDownloadCreated);
-  updateAction();
-})();
+init();

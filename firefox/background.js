@@ -2,7 +2,7 @@ const ICON_MANUAL = 'icons/icon-128.png';
 const ICON_AUTO = 'icons/icon-128-auto.png';
 const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
-let state = 2;
+let state;
 
 async function loadState() {
   const data = await browser.storage.local.get("state");
@@ -30,7 +30,7 @@ function updateBrowserAction() {
   }
 }
 
-function handleDownloadCreated(downloadItem) {
+async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
   const downloadUrl = downloadItem.url;
@@ -43,9 +43,12 @@ function handleDownloadCreated(downloadItem) {
     .then(res => console.log('Response status:', res.status))
     .catch(console.error);
 
-  browser.downloads.cancel(downloadItem.id)
-    .then(() => browser.downloads.erase({ id: downloadItem.id }))
-    .catch(console.error);
+  try {
+    await browser.downloads.cancel(downloadItem.id);
+    await browser.downloads.erase({ id: downloadItem.id });
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function toggleState() {

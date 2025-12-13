@@ -2,7 +2,7 @@ const ICON_MANUAL = 'icons/icon-128.png';
 const ICON_AUTO = 'icons/icon-128-auto.png';
 const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
-let state = 2;
+let state;
 
 function loadState(callback) {
   chrome.storage.local.get("state", function(data) {

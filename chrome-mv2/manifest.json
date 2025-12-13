@@ -1,12 +1,13 @@
 {
   "manifest_version": 2,
   "name": "JDownloader2 Browser Integration",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Intercepts browser downloads and forwards them to JDownloader2",
   "homepage_url": "https://github.com/Lood2222/jdownloader2-browser-integration",
   "permissions": [
     "downloads",
-    "storage"
+    "storage",
+    "<all_urls>"
   ],
   "background": {
     "scripts": ["background.js"],

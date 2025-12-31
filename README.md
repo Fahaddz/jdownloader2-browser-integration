@@ -54,6 +54,8 @@ The icon and tooltip update to indicate the current mode:
 * **30-second cooldown**: After a failure, skips JDownloader checks for 30 seconds (instant fallback)
 * **Click to reset**: Clicking the extension icon resets the cooldown, allowing immediate retry
 * **Smart URL filtering**: Automatically skips URLs that can't be handled (blob:, data:, file:, etc.)
+* **Context menu**: Right-click "Send page/link to JDownloader" for sites with temporary URLs
+* **Referrer support**: Sends both download URL and page URL to JDownloader for better compatibility
 
 ## Requirements
 
@@ -149,6 +151,14 @@ This creates:
 3. The extension intercepts the download and sends the URL to JDownloader2
 4. In Manual mode: links appear in JDownloader's LinkCollector awaiting manual start
 5. In Automatic mode: downloads begin immediately in JDownloader2
+
+### Context Menu (for sites with temporary URLs)
+
+Some sites (like Bunkr, file hosts) generate temporary download URLs that don't work in JDownloader. For these:
+
+1. Right-click on the page or link
+2. Select "Send page to JDownloader" or "Send link to JDownloader"
+3. JDownloader will use its built-in plugins to extract the real download URL
 
 ## Troubleshooting
 

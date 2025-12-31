@@ -6,9 +6,8 @@ const redirectMap = new Map();
 let state;
 let jdAvailable = true;
 let lastCheckTime = 0;
-const CHECK_INTERVAL = 30000; // Re-check JD availability every 30 seconds
+const CHECK_INTERVAL = 30000;
 
-// URL schemes that cannot be handled by JDownloader
 const SKIP_SCHEMES = ['blob:', 'data:', 'file:', 'javascript:', 'about:', 'moz-extension:'];
 
 browser.webRequest.onBeforeRedirect.addListener(
@@ -74,20 +73,22 @@ async function checkJDownloader() {
 
 async function isJDownloaderAvailable() {
   const now = Date.now();
-  
-  // Use cached result if checked recently
   if (now - lastCheckTime < CHECK_INTERVAL) {
     return jdAvailable;
   }
-  
-  // Perform fresh check
   jdAvailable = await checkJDownloader();
   lastCheckTime = now;
   return jdAvailable;
 }
 
-async function sendToJDownloader(url) {
-  const encoded = encodeURIComponent(url);
+async function sendToJDownloader(url, referrer) {
+  // Send both the download URL and referrer - JDownloader will try both
+  let links = url;
+  if (referrer && referrer !== url && !referrer.startsWith('about:')) {
+    links = url + '\n' + referrer;
+  }
+  
+  const encoded = encodeURIComponent(links);
   const endpoint = state === 1
     ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
     : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
@@ -112,29 +113,41 @@ async function sendToJDownloader(url) {
   }
 }
 
+async function sendUrlToJDownloader(url) {
+  const encoded = encodeURIComponent(url);
+  const endpoint = `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
   const url = downloadItem.url;
 
-  // Skip URLs that can't be handled
   if (shouldSkipUrl(url)) {
     console.log('Skipping unsupported URL:', url.substring(0, 50));
     return;
   }
 
-  // CHECK FIRST: Is JDownloader available?
   const isUp = await isJDownloaderAvailable();
   
   if (!isUp) {
-    // JDownloader is down - let browser handle download normally
     console.log('JDownloader offline, letting browser handle download');
     return;
   }
 
   const originalUrl = getOriginalUrl(url);
+  const referrer = downloadItem.referrer || null;
 
-  // JDownloader is available - cancel browser download and send to JD
   try {
     await browser.downloads.cancel(downloadItem.id);
     await browser.downloads.erase({ id: downloadItem.id });
@@ -143,14 +156,13 @@ async function handleDownloadCreated(downloadItem) {
     return;
   }
 
-  // Send to JDownloader
-  const success = await sendToJDownloader(originalUrl);
+  const success = await sendToJDownloader(originalUrl, referrer);
 
   if (success) {
     console.log('Download sent to JDownloader:', originalUrl);
+    if (referrer) console.log('Also sent referrer:', referrer);
   } else {
-    console.log('JDownloader failed - download was already canceled, please retry');
-    // Show notification that user needs to retry
+    console.log('JDownloader failed - please retry download');
     browser.notifications.create({
       type: 'basic',
       iconUrl: 'icons/icon-128.png',
@@ -160,10 +172,46 @@ async function handleDownloadCreated(downloadItem) {
   }
 }
 
+// Context menu to manually send current page to JDownloader
+browser.contextMenus.create({
+  id: 'send-page-to-jd',
+  title: 'Send page to JDownloader',
+  contexts: ['page', 'link']
+});
+
+browser.contextMenus.create({
+  id: 'send-link-to-jd',
+  title: 'Send link to JDownloader',
+  contexts: ['link']
+});
+
+browser.contextMenus.onClicked.addListener(async (info, tab) => {
+  let url;
+  
+  if (info.menuItemId === 'send-link-to-jd' && info.linkUrl) {
+    url = info.linkUrl;
+  } else if (info.menuItemId === 'send-page-to-jd') {
+    url = info.pageUrl || tab.url;
+  }
+  
+  if (!url) return;
+  
+  const success = await sendUrlToJDownloader(url);
+  
+  if (success) {
+    console.log('Sent to JDownloader:', url);
+  } else {
+    browser.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'JDownloader Error',
+      message: 'Could not send link to JDownloader. Is it running?'
+    });
+  }
+});
+
 async function toggleState() {
   state = MODES[(MODES.indexOf(state) + 1) % MODES.length];
-  
-  // Reset JDownloader check on mode change
   jdAvailable = true;
   lastCheckTime = 0;
   
@@ -178,7 +226,5 @@ async function toggleState() {
   if (state !== 0) browser.downloads.onCreated.addListener(handleDownloadCreated);
   updateBrowserAction();
   browser.browserAction.onClicked.addListener(toggleState);
-  
-  // Initial JDownloader check
   isJDownloaderAvailable();
 })();

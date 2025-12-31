@@ -94,22 +94,18 @@ function isJDownloaderAvailable(callback) {
 function sendToJDownloader(url, callback) {
   var encoded = encodeURIComponent(url);
   var endpoint = state === 1
-    ? '/linkcollector/addLinks?links=' + encoded
-    : '/linkcollector/addLinksAndStartDownload?links=' + encoded;
+    ? '/flash/add?urls=' + encoded
+    : '/flash/addAndStart?urls=' + encoded;
 
   var controller = new AbortController();
-  var timeout = setTimeout(function() { controller.abort(); }, 5000);
+  var timeout = setTimeout(function() { controller.abort(); }, 10000);
 
   fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
-    .then(function(res) {
+    .then(function() {
       clearTimeout(timeout);
-      if (res.ok) {
-        jdAvailable = true;
-        lastCheckTime = Date.now();
-        callback(true);
-      } else {
-        callback(false);
-      }
+      jdAvailable = true;
+      lastCheckTime = Date.now();
+      callback(true);
     })
     .catch(function() {
       clearTimeout(timeout);

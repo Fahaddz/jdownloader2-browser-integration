@@ -84,21 +84,18 @@ async function isJDownloaderAvailable() {
 async function sendToJDownloader(url) {
   const encoded = encodeURIComponent(url);
   const endpoint = state === 1
-    ? `/linkcollector/addLinks?links=${encoded}`
-    : `/linkcollector/addLinksAndStartDownload?links=${encoded}`;
+    ? `/flash/add?urls=${encoded}`
+    : `/flash/addAndStart?urls=${encoded}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), 10000);
   
   try {
     const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
     clearTimeout(timeout);
-    if (res.ok) {
-      jdAvailable = true;
-      lastCheckTime = Date.now();
-      return true;
-    }
-    return false;
+    jdAvailable = true;
+    lastCheckTime = Date.now();
+    return true;
   } catch {
     clearTimeout(timeout);
     jdAvailable = false;

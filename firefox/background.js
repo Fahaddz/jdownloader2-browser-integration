@@ -2,15 +2,15 @@ const ICON_MANUAL = 'icons/icon-128.png';
 const ICON_AUTO = 'icons/icon-128-auto.png';
 const ICON_OFF = 'icons/icon-128-disabled.png';
 const MODES = [0, 1, 2];
-const recentUrls = new Set();
 const redirectMap = new Map();
+const processingDownloads = new Set();
 let state;
 let jdAvailable = true;
 let lastFailureTime = 0;
 const FAILURE_COOLDOWN = 30000;
 
-// URL schemes that cannot be handled by JDownloader or re-downloaded
-const SKIP_SCHEMES = ['blob:', 'data:', 'file:', 'javascript:', 'about:', 'chrome:', 'moz-extension:'];
+// URL schemes that cannot be handled by JDownloader
+const SKIP_SCHEMES = ['blob:', 'data:', 'file:', 'javascript:', 'about:', 'moz-extension:'];
 
 browser.webRequest.onBeforeRedirect.addListener(
   function(details) {
@@ -93,80 +93,103 @@ async function quickPing() {
   }
 }
 
-function fallbackToBrowser(url, originalUrl) {
-  recentUrls.add(url);
-  recentUrls.add(originalUrl);
+async function sendToJDownloader(url) {
+  const encoded = encodeURIComponent(url);
+  const endpoint = state === 1
+    ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
+    : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
   
-  setTimeout(() => {
-    recentUrls.delete(url);
-    recentUrls.delete(originalUrl);
-  }, 10000);
-  
-  browser.downloads.download({ url }).catch(err => {
-    console.error('Fallback download failed:', err.message);
-  });
+  try {
+    const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    clearTimeout(timeout);
+    return false;
+  }
 }
 
 async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
+  const downloadId = downloadItem.id;
   const url = downloadItem.url;
-  
-  // Skip URLs that can't be handled by JDownloader
+
+  // Skip URLs that can't be handled
   if (shouldSkipUrl(url)) {
-    console.log('Skipping unsupported URL scheme:', url.substring(0, 50));
+    console.log('Skipping unsupported URL:', url.substring(0, 50));
     return;
   }
+
+  // Prevent re-processing
+  if (processingDownloads.has(downloadId)) {
+    return;
+  }
+  processingDownloads.add(downloadId);
 
   const originalUrl = getOriginalUrl(url);
 
-  if (recentUrls.has(url) || recentUrls.has(originalUrl)) {
-    recentUrls.delete(url);
-    recentUrls.delete(originalUrl);
-    return;
-  }
-
+  // PAUSE immediately to stop bandwidth usage while keeping download context
   try {
-    await browser.downloads.cancel(downloadItem.id);
-    await browser.downloads.erase({ id: downloadItem.id });
-  } catch (e) {}
-
-  if (isInCooldown()) {
-    console.log('JDownloader in cooldown, falling back to browser');
-    fallbackToBrowser(url, originalUrl);
-    return;
-  }
-
-  const isUp = await quickPing();
-  if (!isUp) {
-    console.log('JDownloader not responding, falling back to browser');
-    markJDownloaderFailed();
-    fallbackToBrowser(url, originalUrl);
-    return;
-  }
-
-  const encoded = encodeURIComponent(originalUrl);
-  const endpoint = state === 1
-    ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
-    : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (res.ok) {
-      console.log('Download sent to JDownloader:', originalUrl);
-      markJDownloaderSuccess();
-    } else {
-      throw new Error('JDownloader returned error');
-    }
+    await browser.downloads.pause(downloadId);
   } catch (e) {
-    console.log('JDownloader failed:', e.message);
-    markJDownloaderFailed();
-    fallbackToBrowser(url, originalUrl);
+    console.log('Could not pause download, skipping interception');
+    processingDownloads.delete(downloadId);
+    return;
   }
+
+  // If in cooldown, resume immediately (JDownloader known to be down)
+  if (isInCooldown()) {
+    console.log('JDownloader in cooldown, resuming browser download');
+    try {
+      await browser.downloads.resume(downloadId);
+    } catch (e) {
+      console.error('Failed to resume download:', e.message);
+    }
+    processingDownloads.delete(downloadId);
+    return;
+  }
+
+  // Quick ping to check if JDownloader is available
+  const isUp = await quickPing();
+  
+  if (!isUp) {
+    console.log('JDownloader not responding, resuming browser download');
+    markJDownloaderFailed();
+    try {
+      await browser.downloads.resume(downloadId);
+    } catch (e) {
+      console.error('Failed to resume download:', e.message);
+    }
+    processingDownloads.delete(downloadId);
+    return;
+  }
+
+  // Try to send to JDownloader
+  const success = await sendToJDownloader(originalUrl);
+
+  if (success) {
+    console.log('Download sent to JDownloader:', originalUrl);
+    markJDownloaderSuccess();
+    // Cancel and remove from browser since JDownloader has it
+    try {
+      await browser.downloads.cancel(downloadId);
+      await browser.downloads.erase({ id: downloadId });
+    } catch (e) {}
+  } else {
+    console.log('JDownloader failed, resuming browser download');
+    markJDownloaderFailed();
+    try {
+      await browser.downloads.resume(downloadId);
+    } catch (e) {
+      console.error('Failed to resume download:', e.message);
+    }
+  }
+
+  processingDownloads.delete(downloadId);
 }
 
 async function toggleState() {

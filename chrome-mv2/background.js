@@ -3,11 +3,10 @@ var ICON_AUTO = 'icons/icon-128-auto.png';
 var ICON_OFF = 'icons/icon-128-disabled.png';
 var MODES = [0, 1, 2];
 var redirectMap = new Map();
-var processingDownloads = new Set();
 var state;
 var jdAvailable = true;
-var lastFailureTime = 0;
-var FAILURE_COOLDOWN = 30000;
+var lastCheckTime = 0;
+var CHECK_INTERVAL = 30000; // Re-check JD availability every 30 seconds
 
 // URL schemes that cannot be handled by JDownloader
 var SKIP_SCHEMES = ['blob:', 'data:', 'file:', 'javascript:', 'about:', 'chrome:', 'chrome-extension:'];
@@ -65,29 +64,9 @@ function getOriginalUrl(url) {
   return redirectMap.get(url) || url;
 }
 
-function isInCooldown() {
-  if (!jdAvailable) {
-    if (Date.now() - lastFailureTime < FAILURE_COOLDOWN) {
-      return true;
-    }
-    jdAvailable = true;
-  }
-  return false;
-}
-
-function markJDownloaderFailed() {
-  jdAvailable = false;
-  lastFailureTime = Date.now();
-}
-
-function markJDownloaderSuccess() {
-  jdAvailable = true;
-  lastFailureTime = 0;
-}
-
-function quickPing(callback) {
+function checkJDownloader(callback) {
   var controller = new AbortController();
-  var timeout = setTimeout(function() { controller.abort(); }, 500);
+  var timeout = setTimeout(function() { controller.abort(); }, 1000);
   
   fetch('http://localhost:3128/device/ping', { signal: controller.signal })
     .then(function(res) {
@@ -100,6 +79,23 @@ function quickPing(callback) {
     });
 }
 
+function isJDownloaderAvailable(callback) {
+  var now = Date.now();
+  
+  // Use cached result if checked recently
+  if (now - lastCheckTime < CHECK_INTERVAL) {
+    callback(jdAvailable);
+    return;
+  }
+  
+  // Perform fresh check
+  checkJDownloader(function(isUp) {
+    jdAvailable = isUp;
+    lastCheckTime = Date.now();
+    callback(isUp);
+  });
+}
+
 function sendToJDownloader(url, callback) {
   var encoded = encodeURIComponent(url);
   var endpoint = state === 1
@@ -107,15 +103,23 @@ function sendToJDownloader(url, callback) {
     : '/linkcollector/addLinksAndStartDownload?links=' + encoded + '&packageName=&extractPassword=&downloadPassword=';
 
   var controller = new AbortController();
-  var timeout = setTimeout(function() { controller.abort(); }, 3000);
+  var timeout = setTimeout(function() { controller.abort(); }, 5000);
 
   fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
     .then(function(res) {
       clearTimeout(timeout);
-      callback(res.ok);
+      if (res.ok) {
+        jdAvailable = true;
+        lastCheckTime = Date.now();
+        callback(true);
+      } else {
+        callback(false);
+      }
     })
     .catch(function() {
       clearTimeout(timeout);
+      jdAvailable = false;
+      lastCheckTime = Date.now();
       callback(false);
     });
 }
@@ -123,8 +127,8 @@ function sendToJDownloader(url, callback) {
 function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
-  var downloadId = downloadItem.id;
   var url = downloadItem.url;
+  var downloadId = downloadItem.id;
 
   // Skip URLs that can't be handled
   if (shouldSkipUrl(url)) {
@@ -132,57 +136,37 @@ function handleDownloadCreated(downloadItem) {
     return;
   }
 
-  // Prevent re-processing
-  if (processingDownloads.has(downloadId)) {
-    return;
-  }
-  processingDownloads.add(downloadId);
-
-  var originalUrl = getOriginalUrl(url);
-
-  // PAUSE immediately to stop bandwidth usage while keeping download context
-  chrome.downloads.pause(downloadId, function() {
-    if (chrome.runtime.lastError) {
-      console.log('Could not pause download, skipping interception');
-      processingDownloads.delete(downloadId);
+  // CHECK FIRST: Is JDownloader available?
+  isJDownloaderAvailable(function(isUp) {
+    if (!isUp) {
+      // JDownloader is down - let browser handle download normally
+      console.log('JDownloader offline, letting browser handle download');
       return;
     }
 
-    // If in cooldown, resume immediately
-    if (isInCooldown()) {
-      console.log('JDownloader in cooldown, resuming browser download');
-      chrome.downloads.resume(downloadId, function() {
-        processingDownloads.delete(downloadId);
-      });
-      return;
-    }
+    var originalUrl = getOriginalUrl(url);
 
-    // Quick ping to check if JDownloader is available
-    quickPing(function(isUp) {
-      if (!isUp) {
-        console.log('JDownloader not responding, resuming browser download');
-        markJDownloaderFailed();
-        chrome.downloads.resume(downloadId, function() {
-          processingDownloads.delete(downloadId);
-        });
+    // JDownloader is available - cancel browser download and send to JD
+    chrome.downloads.cancel(downloadId, function() {
+      if (chrome.runtime.lastError) {
+        console.log('Could not cancel download');
         return;
       }
+      
+      chrome.downloads.erase({ id: downloadId });
 
-      // Try to send to JDownloader
+      // Send to JDownloader
       sendToJDownloader(originalUrl, function(success) {
         if (success) {
           console.log('Download sent to JDownloader:', originalUrl);
-          markJDownloaderSuccess();
-          // Cancel and remove from browser since JDownloader has it
-          chrome.downloads.cancel(downloadId, function() {
-            chrome.downloads.erase({ id: downloadId });
-            processingDownloads.delete(downloadId);
-          });
         } else {
-          console.log('JDownloader failed, resuming browser download');
-          markJDownloaderFailed();
-          chrome.downloads.resume(downloadId, function() {
-            processingDownloads.delete(downloadId);
+          console.log('JDownloader failed - download was already canceled, please retry');
+          // Show notification that user needs to retry
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/icon-128.png',
+            title: 'JDownloader Failed',
+            message: 'Download was canceled but JDownloader failed. Please retry the download.'
           });
         }
       });
@@ -192,8 +176,10 @@ function handleDownloadCreated(downloadItem) {
 
 function toggleState() {
   state = MODES[(MODES.indexOf(state) + 1) % MODES.length];
+  
+  // Reset JDownloader check on mode change
   jdAvailable = true;
-  lastFailureTime = 0;
+  lastCheckTime = 0;
   
   chrome.downloads.onCreated.removeListener(handleDownloadCreated);
   if (state !== 0) chrome.downloads.onCreated.addListener(handleDownloadCreated);
@@ -206,4 +192,7 @@ loadState(function(loadedState) {
   if (state !== 0) chrome.downloads.onCreated.addListener(handleDownloadCreated);
   updateBrowserAction();
   chrome.browserAction.onClicked.addListener(toggleState);
+  
+  // Initial JDownloader check
+  isJDownloaderAvailable(function() {});
 });

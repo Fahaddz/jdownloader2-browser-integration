@@ -48,8 +48,8 @@ The icon and tooltip update to indicate the current mode:
 * Toggle modes instantly by clicking the toolbar icon
 * Works with any Chromium-based browser and Firefox
 * **Quick availability check**: Uses `/device/ping` endpoint (~4ms) to verify JDownloader is running
-* **Smart fallback**: If JDownloader is not running, downloads proceed normally in the browser
-* **Filename preservation**: Uses pause/resume instead of cancel - filenames always preserved
+* **Smart fallback**: Checks JDownloader availability BEFORE intercepting - if JD is down, browser handles download normally
+* **Filename preservation**: No interception when JD is offline means filenames are always correct
 * **Redirect URL tracking**: Correctly handles URLs that redirect (e.g., GitHub releases) using the original URL
 * **30-second cooldown**: After a failure, skips JDownloader checks for 30 seconds (instant fallback)
 * **Click to reset**: Clicking the extension icon resets the cooldown, allowing immediate retry
@@ -164,17 +164,16 @@ This creates:
 
 ## How It Works
 
-1. When you start a download, the extension **pauses** it immediately (no bandwidth used)
-2. A quick ping check (~4ms when JD is running, 500ms timeout) verifies JDownloader availability
-3. If JDownloader is **not available**:
-   - The paused download is **resumed** in the browser (keeps original filename!)
-   - A 30-second cooldown starts (subsequent downloads skip the ping check)
-4. If JDownloader **is available**:
+1. When you start a download, the extension first checks if JDownloader is available (cached for 30 seconds)
+2. If JDownloader is **not available**:
+   - The download proceeds normally in the browser (no interception)
+   - No lost downloads, no broken filenames
+3. If JDownloader **is available**:
+   - The browser download is canceled
    - The **original URL** (before any redirects) is sent to JDownloader's API
-   - On success, the browser download is canceled (JDownloader handles it)
-   - On failure, the browser download is resumed
+   - If JDownloader fails unexpectedly, a notification tells you to retry
 
-This ensures downloads never get lost and filenames are always preserved correctly.
+This ensures downloads are only intercepted when JDownloader is confirmed to be running.
 
 ## Limitations
 

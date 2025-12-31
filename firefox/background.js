@@ -82,15 +82,19 @@ async function isJDownloaderAvailable() {
 }
 
 async function sendToJDownloader(url) {
-  const encoded = encodeURIComponent(url);
-  const autostart = state === 2 ? '&autostart=1' : '';
-  const endpoint = `/flashgot?urls=${encoded}${autostart}`;
+  const autostart = state === 2 ? '1' : '0';
+  const body = `urls=${encodeURIComponent(url)}&autostart=${autostart}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   
   try {
-    await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
+    await fetch('http://localhost:3128/flash/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body,
+      signal: controller.signal
+    });
     clearTimeout(timeout);
     jdAvailable = true;
     lastCheckTime = Date.now();

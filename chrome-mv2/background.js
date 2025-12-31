@@ -92,14 +92,18 @@ function isJDownloaderAvailable(callback) {
 }
 
 function sendToJDownloader(url, callback) {
-  var encoded = encodeURIComponent(url);
-  var autostart = state === 2 ? '&autostart=1' : '';
-  var endpoint = '/flashgot?urls=' + encoded + autostart;
+  var autostart = state === 2 ? '1' : '0';
+  var body = 'urls=' + encodeURIComponent(url) + '&autostart=' + autostart;
 
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 10000);
 
-  fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
+  fetch('http://localhost:3128/flash/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body,
+    signal: controller.signal
+  })
     .then(function() {
       clearTimeout(timeout);
       jdAvailable = true;

@@ -83,15 +83,14 @@ async function isJDownloaderAvailable() {
 
 async function sendToJDownloader(url) {
   const encoded = encodeURIComponent(url);
-  const endpoint = state === 1
-    ? `/flash/add?urls=${encoded}`
-    : `/flash/addAndStart?urls=${encoded}`;
+  const autostart = state === 2 ? '&autostart=1' : '';
+  const endpoint = `/flashgot?urls=${encoded}${autostart}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   
   try {
-    const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
+    await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
     clearTimeout(timeout);
     jdAvailable = true;
     lastCheckTime = Date.now();

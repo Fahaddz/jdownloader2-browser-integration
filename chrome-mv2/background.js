@@ -93,9 +93,8 @@ function isJDownloaderAvailable(callback) {
 
 function sendToJDownloader(url, callback) {
   var encoded = encodeURIComponent(url);
-  var endpoint = state === 1
-    ? '/flash/add?urls=' + encoded
-    : '/flash/addAndStart?urls=' + encoded;
+  var autostart = state === 2 ? '&autostart=1' : '';
+  var endpoint = '/flashgot?urls=' + encoded + autostart;
 
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 10000);

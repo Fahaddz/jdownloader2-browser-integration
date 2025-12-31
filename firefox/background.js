@@ -91,14 +91,11 @@ async function sendToJDownloader(url) {
   const timeout = setTimeout(() => controller.abort(), 5000);
   
   try {
-    const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
+    await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
     clearTimeout(timeout);
-    if (res.ok) {
-      jdAvailable = true;
-      lastCheckTime = Date.now();
-      return true;
-    }
-    return false;
+    jdAvailable = true;
+    lastCheckTime = Date.now();
+    return true;
   } catch {
     clearTimeout(timeout);
     jdAvailable = false;

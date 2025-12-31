@@ -101,15 +101,11 @@ function sendToJDownloader(url, callback) {
   var timeout = setTimeout(function() { controller.abort(); }, 5000);
 
   fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
-    .then(function(res) {
+    .then(function() {
       clearTimeout(timeout);
-      if (res.ok) {
-        jdAvailable = true;
-        lastCheckTime = Date.now();
-        callback(true);
-      } else {
-        callback(false);
-      }
+      jdAvailable = true;
+      lastCheckTime = Date.now();
+      callback(true);
     })
     .catch(function() {
       clearTimeout(timeout);

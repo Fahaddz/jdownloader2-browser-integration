@@ -9,6 +9,9 @@ let jdAvailable = true;
 let lastFailureTime = 0;
 const FAILURE_COOLDOWN = 30000;
 
+// URL schemes that cannot be handled by JDownloader or re-downloaded
+const SKIP_SCHEMES = ['blob:', 'data:', 'file:', 'javascript:', 'about:', 'chrome:', 'chrome-extension:'];
+
 chrome.webRequest.onBeforeRedirect.addListener(
   function(details) {
     if (details.type === 'main_frame' || details.type === 'sub_frame') return;
@@ -21,6 +24,12 @@ chrome.webRequest.onBeforeRedirect.addListener(
   },
   { urls: ['<all_urls>'] }
 );
+
+function shouldSkipUrl(url) {
+  if (!url) return true;
+  const lowerUrl = url.toLowerCase();
+  return SKIP_SCHEMES.some(scheme => lowerUrl.startsWith(scheme));
+}
 
 async function loadState() {
   const data = await chrome.storage.local.get('state');
@@ -104,6 +113,13 @@ async function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
   const url = downloadItem.url;
+  
+  // Skip URLs that can't be handled by JDownloader
+  if (shouldSkipUrl(url)) {
+    console.log('Skipping unsupported URL scheme:', url.substring(0, 50));
+    return;
+  }
+
   const originalUrl = getOriginalUrl(url);
 
   if (recentUrls.has(url) || recentUrls.has(originalUrl)) {

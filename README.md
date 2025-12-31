@@ -53,6 +53,7 @@ The icon and tooltip update to indicate the current mode:
 * **Redirect URL tracking**: Correctly handles URLs that redirect (e.g., GitHub releases) using the original URL
 * **30-second cooldown**: After a failure, skips JDownloader checks for 30 seconds (instant fallback)
 * **Click to reset**: Clicking the extension icon resets the cooldown, allowing immediate retry
+* **Smart URL filtering**: Automatically skips URLs that can't be handled (blob:, data:, file:, etc.)
 
 ## Requirements
 
@@ -159,6 +160,7 @@ This creates:
 | Extension icon not visible | Pin the extension from the browser's extension menu |
 | Download falls back to browser | This is expected behavior when JDownloader is not running or unreachable |
 | Fallback happening too often | Click the extension icon to reset the cooldown and retry JDownloader |
+| Download from Google Colab/blob URLs not working | These are browser-generated URLs that can't be intercepted - the extension automatically skips them |
 
 ## How It Works
 

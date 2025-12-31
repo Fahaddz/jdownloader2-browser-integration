@@ -30,8 +30,8 @@ A browser extension that intercepts download requests and forwards them to your 
 The extension offers three modes, switchable by clicking the toolbar icon:
 
 * **Disabled**: The extension is inactive. Browser handles downloads normally.
-* **Manual** (default): Intercepts each download and sends the link to JDownloader's LinkCollector without starting the download. You can review and start downloads manually in JDownloader.
-* **Automatic**: Intercepts and automatically sends each download link to JDownloader's LinkCollector and immediately starts the download in JDownloader.
+* **Manual**: Intercepts each download and sends the link to JDownloader's LinkCollector without starting the download. You can review and start downloads manually in JDownloader.
+* **Automatic** (default): Intercepts and automatically sends each download link to JDownloader's LinkCollector and immediately starts the download in JDownloader.
 
 The icon and tooltip update to indicate the current mode:
 
@@ -55,7 +55,6 @@ The icon and tooltip update to indicate the current mode:
 * **Click to reset**: Clicking the extension icon resets the cooldown, allowing immediate retry
 * **Smart URL filtering**: Automatically skips URLs that can't be handled (blob:, data:, file:, etc.)
 * **Context menu**: Right-click "Send page/link to JDownloader" for sites with temporary URLs
-* **Referrer support**: Sends both download URL and page URL to JDownloader for better compatibility
 
 ## Requirements
 

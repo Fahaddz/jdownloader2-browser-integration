@@ -82,23 +82,23 @@ async function isJDownloaderAvailable() {
 }
 
 async function sendToJDownloader(url) {
-  const autostart = state === 2 ? '1' : '0';
-  const body = `urls=${encodeURIComponent(url)}&autostart=${autostart}`;
+  const encoded = encodeURIComponent(url);
+  const endpoint = state === 1
+    ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
+    : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 5000);
   
   try {
-    await fetch('http://localhost:3128/flash/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body,
-      signal: controller.signal
-    });
+    const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
     clearTimeout(timeout);
-    jdAvailable = true;
-    lastCheckTime = Date.now();
-    return true;
+    if (res.ok) {
+      jdAvailable = true;
+      lastCheckTime = Date.now();
+      return true;
+    }
+    return false;
   } catch {
     clearTimeout(timeout);
     jdAvailable = false;

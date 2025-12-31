@@ -81,17 +81,11 @@ async function isJDownloaderAvailable() {
   return jdAvailable;
 }
 
-async function sendToJDownloader(url, referrer) {
-  // Send both the download URL and referrer - JDownloader will try both
-  let links = url;
-  if (referrer && referrer !== url && !referrer.startsWith('about:') && !referrer.startsWith('chrome:')) {
-    links = url + '\n' + referrer;
-  }
-  
-  const encoded = encodeURIComponent(links);
+async function sendToJDownloader(url) {
+  const encoded = encodeURIComponent(url);
   const endpoint = state === 1
-    ? `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`
-    : `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
+    ? `/linkcollector/addLinks?links=${encoded}`
+    : `/linkcollector/addLinksAndStartDownload?links=${encoded}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
@@ -109,21 +103,6 @@ async function sendToJDownloader(url, referrer) {
     clearTimeout(timeout);
     jdAvailable = false;
     lastCheckTime = Date.now();
-    return false;
-  }
-}
-
-async function sendUrlToJDownloader(url) {
-  const encoded = encodeURIComponent(url);
-  const endpoint = `/linkcollector/addLinks?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    return res.ok;
-  } catch {
     return false;
   }
 }
@@ -146,7 +125,6 @@ async function handleDownloadCreated(downloadItem) {
   }
 
   const originalUrl = getOriginalUrl(url);
-  const referrer = downloadItem.referrer || null;
 
   try {
     await chrome.downloads.cancel(downloadItem.id);
@@ -156,11 +134,10 @@ async function handleDownloadCreated(downloadItem) {
     return;
   }
 
-  const success = await sendToJDownloader(originalUrl, referrer);
+  const success = await sendToJDownloader(originalUrl);
 
   if (success) {
     console.log('Download sent to JDownloader:', originalUrl);
-    if (referrer) console.log('Also sent referrer:', referrer);
   } else {
     console.log('JDownloader failed - please retry download');
     chrome.notifications.create({
@@ -198,7 +175,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   
   if (!url) return;
   
-  const success = await sendUrlToJDownloader(url);
+  const success = await sendToJDownloader(url);
   
   if (success) {
     console.log('Sent to JDownloader:', url);

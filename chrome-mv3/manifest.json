@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JDownloader2 Browser Integration",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Intercepts browser downloads and forwards them to JDownloader2",
   "homepage_url": "https://github.com/Fahaddz/jdownloader2-browser-integration",
   "permissions": [

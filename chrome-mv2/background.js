@@ -91,16 +91,11 @@ function isJDownloaderAvailable(callback) {
   });
 }
 
-function sendToJDownloader(url, referrer, callback) {
-  var links = url;
-  if (referrer && referrer !== url && referrer.indexOf('about:') !== 0 && referrer.indexOf('chrome:') !== 0) {
-    links = url + '\n' + referrer;
-  }
-  
-  var encoded = encodeURIComponent(links);
+function sendToJDownloader(url, callback) {
+  var encoded = encodeURIComponent(url);
   var endpoint = state === 1
-    ? '/linkcollector/addLinks?links=' + encoded + '&packageName=&extractPassword=&downloadPassword='
-    : '/linkcollector/addLinksAndStartDownload?links=' + encoded + '&packageName=&extractPassword=&downloadPassword=';
+    ? '/linkcollector/addLinks?links=' + encoded
+    : '/linkcollector/addLinksAndStartDownload?links=' + encoded;
 
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 5000);
@@ -124,24 +119,6 @@ function sendToJDownloader(url, referrer, callback) {
     });
 }
 
-function sendUrlToJDownloader(url, callback) {
-  var encoded = encodeURIComponent(url);
-  var endpoint = '/linkcollector/addLinks?links=' + encoded + '&packageName=&extractPassword=&downloadPassword=';
-
-  var controller = new AbortController();
-  var timeout = setTimeout(function() { controller.abort(); }, 5000);
-
-  fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
-    .then(function(res) {
-      clearTimeout(timeout);
-      callback(res.ok);
-    })
-    .catch(function() {
-      clearTimeout(timeout);
-      callback(false);
-    });
-}
-
 function handleDownloadCreated(downloadItem) {
   if (state === 0) return;
 
@@ -159,7 +136,6 @@ function handleDownloadCreated(downloadItem) {
     }
 
     var originalUrl = getOriginalUrl(url);
-    var referrer = downloadItem.referrer || null;
 
     chrome.downloads.cancel(downloadItem.id, function() {
       if (chrome.runtime.lastError) {
@@ -169,10 +145,9 @@ function handleDownloadCreated(downloadItem) {
       
       chrome.downloads.erase({ id: downloadItem.id });
 
-      sendToJDownloader(originalUrl, referrer, function(success) {
+      sendToJDownloader(originalUrl, function(success) {
         if (success) {
           console.log('Download sent to JDownloader:', originalUrl);
-          if (referrer) console.log('Also sent referrer:', referrer);
         } else {
           console.log('JDownloader failed - please retry download');
           chrome.notifications.create({
@@ -211,7 +186,7 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
   
   if (!url) return;
   
-  sendUrlToJDownloader(url, function(success) {
+  sendToJDownloader(url, function(success) {
     if (success) {
       console.log('Sent to JDownloader:', url);
     } else {

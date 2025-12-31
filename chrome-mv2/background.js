@@ -182,18 +182,27 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
   
   if (!url) return;
   
-  sendToJDownloader(url, function(success) {
-    if (success) {
+  // Context menu always uses addLinksAndStartDownload
+  var encoded = encodeURIComponent(url);
+  var endpoint = '/linkcollector/addLinksAndStartDownload?links=' + encoded + '&packageName=&extractPassword=&downloadPassword=';
+  
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 5000);
+  
+  fetch('http://localhost:3128' + endpoint, { signal: controller.signal })
+    .then(function() {
+      clearTimeout(timeout);
       console.log('Sent to JDownloader:', url);
-    } else {
+    })
+    .catch(function() {
+      clearTimeout(timeout);
       chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icons/icon-128.png',
         title: 'JDownloader Error',
         message: 'Could not send link to JDownloader. Is it running?'
       });
-    }
-  });
+    });
 });
 
 function toggleState() {

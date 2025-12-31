@@ -170,11 +170,17 @@ browser.contextMenus.onClicked.addListener(async (info, tab) => {
   
   if (!url) return;
   
-  const success = await sendToJDownloader(url);
+  // Context menu always uses addLinksAndStartDownload
+  const encoded = encodeURIComponent(url);
+  const endpoint = `/linkcollector/addLinksAndStartDownload?links=${encoded}&packageName=&extractPassword=&downloadPassword=`;
   
-  if (success) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    await fetch(`http://localhost:3128${endpoint}`, { signal: controller.signal });
+    clearTimeout(timeout);
     console.log('Sent to JDownloader:', url);
-  } else {
+  } catch {
     browser.notifications.create({
       type: 'basic',
       iconUrl: 'icons/icon-128.png',
